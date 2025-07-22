@@ -1,6 +1,6 @@
 # Real-time Apache Log Monitor for ISPConfig
 
-A lightweight Node.js application that monitors Apache log files in real-time and displays them in a web browser with color coding, whois lookup functionality, and a search functionality.
+A really simple, lightweight Node.js application that monitors Apache log files in real-time for all websites hosted by ISPConfig, and shows them in a web browser, with color coding, whois lookup option, and search functionality.
 
 ## Features
 
