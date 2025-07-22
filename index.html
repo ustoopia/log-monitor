@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Log Monitor</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: #2d2d2d;
+            padding: 15px 20px;
+            border-bottom: 2px solid #444;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .search-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .search-input {
+            flex: 1;
+            max-width: 400px;
+            padding: 8px 12px;
+            background-color: #3d3d3d;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: white;
+            font-size: 14px;
+        }
+        
+        .search-input:focus {
+            outline: none;
+            border-color: #0066cc;
+            box-shadow: 0 0 5px rgba(0,102,204,0.3);
+        }
+        
+        .stats {
+            color: #888;
+            font-size: 12px;
+        }
+        
+        .logs-container {
+            margin-top: 80px;
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+        
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background-color: #2a2a2a;
+            border-left: 3px solid #0066cc;
+            border-radius: 4px;
+            opacity: 0;
+            animation: slideIn 0.3s ease-out forwards;
+            transition: background-color 0.2s;
+        }
+        
+        .log-entry:hover {
+            background-color: #333;
+        }
+        
+        .log-entry.error {
+            border-left-color: #ff4444;
+            background-color: #2a1a1a;
+        }
+        
+        .log-entry.access {
+            border-left-color: #44aa44;
+        }
+        
+        .log-entry.hidden {
+            display: none;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .website-name {
+            color: #66ccff;
+            font-weight: bold;
+            display: inline-block;
+            min-width: 150px;
+            margin-right: 15px;
+        }
+        
+        .datetime {
+            color: #ffaa00;
+            margin-right: 15px;
+        }
+        
+        .ip {
+            color: #ff6699;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        
+        .ip:hover {
+            color: #ffaacc;
+        }
+        
+        .method {
+            color: #88ff88;
+            font-weight: bold;
+        }
+        
+        .path {
+            color: #88ccff;
+        }
+        
+        .status-2xx {
+            color: #44ff44;
+            font-weight: bold;
+        }
+        
+        .status-3xx {
+            color: #ffaa00;
+            font-weight: bold;
+        }
+        
+        .status-4xx {
+            color: #ff8844;
+            font-weight: bold;
+        }
+        
+        .status-5xx {
+            color: #ff4444;
+            font-weight: bold;
+        }
+        
+        .size {
+            color: #cccccc;
+        }
+        
+        .error-message {
+            color: #ff6666;
+            display: block;
+            margin-top: 5px;
+            padding-left: 165px;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .connected {
+            background-color: #44aa44;
+            color: white;
+        }
+        
+        .disconnected {
+            background-color: #ff4444;
+            color: white;
+        }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="header">
+        <div class="search-container">
+            <input type="text" class="search-input" placeholder="Search logs..." id="searchInput">
+            <div class="stats">
+                <span id="visibleCount">0</span> / <span id="totalCount">0</span> entries
+            </div>
+        </div>
+    </div>
+    
+    <div class="connection-status" id="connectionStatus">Connecting...</div>
+    
+    <div class="logs-container" id="logsContainer">
+        <!-- Log entries will be added here -->
+    </div>
+
+    <script>
+        const socket = io();
+        const logsContainer = document.getElementById('logsContainer');
+        const searchInput = document.getElementById('searchInput');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const visibleCount = document.getElementById('visibleCount');
+        const totalCount = document.getElementById('totalCount');
+        
+        let allEntries = [];
+        
+        // Connection status
+        socket.on('connect', () => {
+            connectionStatus.textContent = 'Connected';
+            connectionStatus.className = 'connection-status connected';
+        });
+        
+        socket.on('disconnect', () => {
+            connectionStatus.textContent = 'Disconnected';
+            connectionStatus.className = 'connection-status disconnected';
+        });
+        
+        // Function to make IPs clickable
+        function makeIPClickable(text) {
+            const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g;
+            return text.replace(ipRegex, (ip) => {
+                return `<span class="ip" onclick="openWhois('${ip}')">${ip}</span>`;
+            });
+        }
+        
+        // Function to open WHOIS lookup
+        function openWhois(ip) {
+            // Try different WHOIS services - you can change this URL if needed
+            window.open(`https://www.whatismyipaddress.com/ip/${ip}`, '_blank');
+        }
+        
+        // Function to format log entry
+        function formatLogEntry(entry) {
+            const div = document.createElement('div');
+            div.className = `log-entry ${entry.type}`;
+            
+            if (entry.type === 'access') {
+                const [method, path, protocol] = (entry.request || '').split(' ');
+                const statusClass = getStatusClass(entry.status);
+                
+                div.innerHTML = `
+                    <span class="website-name">[${entry.website}]</span>
+                    <span class="datetime">${entry.datetime}</span>
+                    ${makeIPClickable(entry.ip || '')} 
+                    <span class="method">${method || ''}</span> 
+                    <span class="path">${path || ''}</span> 
+                    <span class="${statusClass}">${entry.status}</span> 
+                    <span class="size">${entry.size || '-'}</span>
+                `;
+            } else {
+                div.innerHTML = `
+                    <span class="website-name">[${entry.website}]</span>
+                    <span class="datetime">${entry.datetime}</span>
+                    ERROR
+                    <span class="error-message">${makeIPClickable(entry.message || '')}</span>
+                `;
+            }
+            
+            return div;
+        }
+        
+        // Function to get status code CSS class
+        function getStatusClass(status) {
+            if (status >= 200 && status < 300) return 'status-2xx';
+            if (status >= 300 && status < 400) return 'status-3xx';
+            if (status >= 400 && status < 500) return 'status-4xx';
+            if (status >= 500) return 'status-5xx';
+            return 'status';
+        }
+        
+        // Function to add log entry to DOM
+        function addLogEntry(entry) {
+            const logElement = formatLogEntry(entry);
+            logsContainer.insertBefore(logElement, logsContainer.firstChild);
+            
+            // Remove excess entries
+            while (logsContainer.children.length > 500) {
+                logsContainer.removeChild(logsContainer.lastChild);
+            }
+            
+            allEntries.unshift(entry);
+            if (allEntries.length > 500) {
+                allEntries = allEntries.slice(0, 500);
+            }
+            
+            updateStats();
+        }
+        
+        // Function to update statistics
+        function updateStats() {
+            totalCount.textContent = allEntries.length;
+            const visible = document.querySelectorAll('.log-entry:not(.hidden)').length;
+            visibleCount.textContent = visible;
+        }
+        
+        // Search functionality
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const entries = document.querySelectorAll('.log-entry');
+            
+            entries.forEach(entry => {
+                const text = entry.textContent.toLowerCase();
+                if (text.includes(searchTerm)) {
+                    entry.classList.remove('hidden');
+                } else {
+                    entry.classList.add('hidden');
+                }
+            });
+            
+            updateStats();
+        });
+        
+        // Socket event listeners
+        socket.on('initialLogs', (entries) => {
+            allEntries = entries;
+            logsContainer.innerHTML = '';
+            entries.forEach(entry => {
+                const logElement = formatLogEntry(entry);
+                logsContainer.appendChild(logElement);
+            });
+            updateStats();
+        });
+        
+        socket.on('newLogEntry', (entry) => {
+            addLogEntry(entry);
+        });
+        
+        // Auto-scroll to top when new entries arrive (optional)
+        // Uncomment if you want auto-scroll behavior
+        /*
+        socket.on('newLogEntry', (entry) => {
+            addLogEntry(entry);
+            logsContainer.scrollTop = 0;
+        });
+        */
+    </script>
+</body>
+</html>
