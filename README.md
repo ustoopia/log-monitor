@@ -31,7 +31,7 @@ v22.16.0 (example)
 
 ```bash
 # Clone this repository
-git clone https://github.com/ustoopia/
+git clone https://github.com/ustoopia/log-monitor
 
 # Run the installer
 cd log-monitor
